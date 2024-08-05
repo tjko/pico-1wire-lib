@@ -43,6 +43,12 @@
 #define CMD_RECALL             0xB8
 #define CMD_READ_POWER_SUPPLY  0xB4
 
+/* 1-Wire Device Family Codes */
+#define FAMILY_CODE_DS18S20      0x10  /* Temperature (9bit) */
+#define FAMILY_CODE_DS1822       0x22  /* Temperature (9-12bit) */
+#define FAMILY_CODE_DS18B20      0x28  /* Temperature (9-12bit) */
+#define FAMILY_CODE_MAX31826     0x3B  /* Temperature (12bit) + 1k EEPROM */
+#define FAMILY_CODE_DS28EA00     0x42  /* Temperature + IO */
 
 /* Timings */
 #define RESET_PULSE_TX_MIN_LEN   480    /* 480us min */
@@ -51,6 +57,8 @@
 #define WRITE_SLOT_RECOVERY_TIME 5      /* 1us min */
 #define READ_SLOT_LEN            60     /* 60us min */
 #define READ_SLOT_RECOVERY_TIME  5      /* 1us min */
+
+
 
 
 #define NULL_BUS_ADDRESS  (uint64_t)0
@@ -81,6 +89,7 @@ static inline uint8_t crc8(uint8_t crc, uint8_t data)
 {
 	return crc8_lookup_table[crc ^ data];
 }
+
 
 
 static inline void power_mosfet_on(pico_1wire_t *ctx)
@@ -405,6 +414,140 @@ int pico_1wire_read_power_supply(pico_1wire_t *ctx, bool *present)
 }
 
 
+static int match_rom(pico_1wire_t *ctx, uint64_t addr)
+{
+	if (!pico_1wire_reset_bus(ctx))
+		return 1;
 
+	if (addr ==  0) {
+		/* Send Skip ROM command */
+		write_byte(ctx, CMD_SKIP);
+	} else {
+		/* Send Match ROM command */
+		write_byte(ctx, CMD_MATCH);
+		for (int i = 0; i < 8; i++) {
+			write_byte(ctx, ((uint8_t *)&addr)[7 - i]);
+		}
+	}
+
+	return 0;
+}
+
+
+int pico_1wire_read_scratch_pad(pico_1wire_t *ctx, uint64_t addr, uint8_t *buf)
+{
+	const uint len = 9;
+	uint8_t crc = 0;
+
+	if (!ctx || !buf)
+		return -1;
+
+	if (match_rom(ctx, addr))
+		return 1;
+
+	/* Send Read Scratch Pad command. */
+	write_byte(ctx, CMD_READ_SCRATCHPAD);
+
+	/* Read response and calculate CRC */
+	for (int i = 0; i < len; i++) {
+		buf[i] = read_byte(ctx);
+		if (i < (len - 1))
+			crc = crc8(crc, buf[i]);
+	}
+
+	/* Check CRC checksum */
+	if (crc != buf[len - 1])
+		return 2;
+
+	return 0;
+}
+
+int pico_1wire_write_scratch_pad(pico_1wire_t *ctx, uint64_t addr, uint8_t *buf)
+{
+	if (!ctx || !buf)
+		return -1;
+
+	if (match_rom(ctx, addr))
+		return 1;
+
+	/* Send Read Scratch Pad command. */
+	write_byte(ctx, CMD_WRITE_SCRATCHPAD);
+
+	/* Write 3 bytes on the devices scratch pad */
+	write_byte(ctx, buf[2]); /* T(H) register */
+	write_byte(ctx, buf[3]); /* T(L) register */
+	write_byte(ctx, buf[4]); /* Configuration register */
+
+	return 0;
+}
+
+int pico_1wire_convert_temperature(pico_1wire_t *ctx, uint64_t addr, bool wait)
+{
+	uint delay = 750;
+
+	if (!ctx)
+		return -1;
+
+	/* Send Match ROM or Skip ROM command as needed... */
+	if (match_rom(ctx, addr))
+		return 1;
+
+	/* Send Convert Temperature command. */
+	write_byte(ctx, CMD_CONVERT);
+
+	if (!ctx->psu_present) {
+		if (ctx->power_available) {
+			power_mosfet_on(ctx);
+			sleep_ms(delay);
+			power_mosfet_off(ctx);
+		} else {
+			gpio_set_dir(ctx->data_pin, GPIO_OUT);
+			gpio_put(ctx->data_pin, true);
+			sleep_ms(delay);
+			gpio_set_dir(ctx->data_pin, GPIO_IN);
+		}
+	}
+	else {
+		if (wait) {
+			sleep_ms(delay);
+		}
+	}
+
+	return 0;
+}
+
+int pico_1wire_get_temperature(pico_1wire_t *ctx, uint64_t addr, float *temperature)
+{
+	uint8_t scratch[16];
+	int val;
+	float temp;
+
+	if (!ctx || !temperature)
+		return -1;
+
+	if (pico_1wire_read_scratch_pad(ctx, addr, scratch))
+		return 1;
+
+	val = (scratch[1] << 8) | scratch[0];
+	temp  = (float)val;
+
+
+	switch( (addr >> 56) ) {
+	case FAMILY_CODE_DS18B20:
+	case FAMILY_CODE_DS1822:
+	case FAMILY_CODE_MAX31826:
+		temp /= 16.0;
+		break;
+	case FAMILY_CODE_DS18S20:
+		break;
+	default:
+		temp = 0.0;
+		break;
+	}
+
+	*temperature = temp;
+
+	return 0;
+}
 
 

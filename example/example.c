@@ -41,6 +41,8 @@ int main() {
 	uint64_t addr_list[MAX_DEVICES];
 	uint device_count;
 	int res;
+	uint8_t scratch[32];
+	float temp;
 
 	stdio_init_all();
 
@@ -87,6 +89,31 @@ int main() {
 		log_msg("device count: %u", device_count);
 		for (int i = 0; i < device_count; i++) {
 			log_msg("Device %02d: %016llX\n", i + 1, addr_list[i]);
+		}
+
+		if (device_count > 0) {
+			log_msg("Convert temperature: %016llX", addr_list[0]);
+			res = pico_1wire_convert_temperature(ctx, addr_list[0], true);
+			log_msg("result: %d", res);
+
+			log_msg("read scratch pad");
+			res = pico_1wire_read_scratch_pad(ctx, addr_list[0], scratch);
+			log_msg("result: %d", res);
+			if (res == 0)
+				log_msg("%02x %02x %02x %02x %02x %02x %02x %02x %02x",
+					scratch[0],
+					scratch[1],
+					scratch[2],
+					scratch[3],
+					scratch[4],
+					scratch[5],
+					scratch[6],
+					scratch[7],
+					scratch[8],
+					scratch[9]);
+
+			res = pico_1wire_get_temperature(ctx, addr_list[0], &temp);
+			log_msg("res=%d, temp: %0.4f", res, temp);
 		}
 
 		log_msg("sleep...");
