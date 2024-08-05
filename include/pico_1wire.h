@@ -25,12 +25,19 @@
 #include "pico/stdio.h"
 
 
+#if 0
+typedef struct pico_1wire_address_t {
+	uint8_t code[8];
+} pico_1wire_address_t;
+#endif
 
 typedef struct pico_1wire_t {
 	uint data_pin;
 	uint power_pin;
 	bool power_available; /* Power MOSFET available */
 	bool power_state; /* GPIO state to turn power MOSFET on */
+
+	bool psu_present;
 } pico_1wire_t;
 
 
@@ -38,6 +45,8 @@ typedef struct pico_1wire_t {
 pico_1wire_t* pico_1wire_init(int data_pin, int power_pin, bool power_polarity);
 void pico_1wire_destroy(pico_1wire_t *ctx);
 bool pico_1wire_reset_bus(pico_1wire_t *ctx);
-
+int pico_1wire_read_rom(pico_1wire_t *ctx, uint64_t *addr);
+int pico_1wire_search_rom(pico_1wire_t *ctx, uint64_t  *addr_list, uint addr_list_size, uint *devices_found);
+int pico_1wire_read_power_supply(pico_1wire_t *ctx,  bool *present);
 
 #endif /* PICO_1WIRE_H */
