@@ -509,15 +509,15 @@ int pico_1wire_convert_duration(pico_1wire_t *ctx, uint64_t addr, uint *duration
 		case FAMILY_CODE_DS1822:
 		case FAMILY_CODE_DS1825:
 		case FAMILY_CODE_DS28EA00:
-			if (pico_1wire_read_scratch_pad(ctx, addr, scratch))
-				return 1;
-			uint8_t resolution = ((scratch[4] & 0x7f) >> 5) + 9;
-			if (resolution == 9)
-				delay = 95;
-			else if (resolution == 10)
-				delay = 190;
-			else if (resolution == 11)
-				delay = 375;
+			if (!pico_1wire_read_scratch_pad(ctx, addr, scratch)) {
+				uint8_t resolution = ((scratch[4] & 0x7f) >> 5) + 9;
+				if (resolution == 9)
+					delay = 95;
+				else if (resolution == 10)
+					delay = 190;
+				else if (resolution == 11)
+					delay = 375;
+			}
 			break;
 
 		default:
