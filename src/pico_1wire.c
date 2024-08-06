@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "pico/stdlib.h"
 #include "hardware/gpio.h"
 
@@ -59,13 +60,12 @@
 #define READ_SLOT_RECOVERY_TIME  5      /* 1us min */
 
 
-
-
+#define ADDR_FAMILY_CODE(x) ((uint64_t)(x) >> 56)
 #define NULL_BUS_ADDRESS  (uint64_t)0
 
 
 
-static const uint8_t crc8_lookup_table[] = {
+static const uint8_t pico_1wire_crc8_lookup_table[] = {
 	0, 94, 188, 226, 97, 63, 221, 131, 194, 156, 126, 32, 163, 253, 31, 65,
 	157, 195, 33, 127, 252, 162, 64, 30, 95, 1, 227, 189, 62, 96, 130, 220,
 	35, 125, 159, 193, 66, 28, 254, 160, 225, 191, 93, 3, 128, 222, 60, 98,
@@ -87,9 +87,14 @@ static const uint8_t crc8_lookup_table[] = {
 
 static inline uint8_t crc8(uint8_t crc, uint8_t data)
 {
-	return crc8_lookup_table[crc ^ data];
+	return pico_1wire_crc8_lookup_table[crc ^ data];
 }
 
+
+static inline void uint64_set_bit(uint64_t *var, uint bit, bool value)
+{
+	*var = (*var & ~((uint64_t)1 << bit)) | ((uint64_t)value << bit);
+}
 
 
 static inline void power_mosfet_on(pico_1wire_t *ctx)
@@ -97,6 +102,7 @@ static inline void power_mosfet_on(pico_1wire_t *ctx)
 	if (ctx->power_available)
 		gpio_put(ctx->power_pin, ctx->power_state);
 }
+
 
 static inline void power_mosfet_off(pico_1wire_t *ctx)
 {
@@ -173,6 +179,85 @@ static uint8_t read_byte(pico_1wire_t *ctx)
 }
 
 
+static bool find_next_device(pico_1wire_t *ctx, uint64_t *addr, bool *done, uint *last_discrepancy)
+{
+	bool result = false;
+	uint rom_bit_index = 1;
+	uint discrepancy = 0;
+	bool bit_a, bit_b;
+
+	/* This implementation is based on one described in the DS18B20 datasheet. */
+
+	if (*done) {
+		*done = false;
+		return result;
+	}
+
+	if (!pico_1wire_reset_bus(ctx)) {
+		*last_discrepancy = 0;
+		return result;
+	}
+
+	/* Send Search ROM command */
+	write_byte(ctx, CMD_SEARCH);
+
+	do {
+		/* Read Responses */
+		bit_a = read_bit(ctx);
+		bit_b = read_bit(ctx);
+
+		if (bit_a & bit_b) { /* Both bits 1 */
+			*last_discrepancy = 0;
+			return result;
+		}
+		if (bit_a == bit_b) { /* Both bits 0 */
+			if (rom_bit_index == *last_discrepancy) {
+				uint64_set_bit(addr, rom_bit_index - 1, true);
+			}
+			else if (rom_bit_index > *last_discrepancy) {
+				uint64_set_bit(addr, rom_bit_index - 1, false);
+				discrepancy = rom_bit_index;
+			}
+			else if (!( *addr & ((uint64_t)1 << (rom_bit_index - 1)))) {
+				discrepancy = rom_bit_index;
+			}
+		} else {
+			uint64_set_bit(addr, rom_bit_index - 1, bit_a);
+		}
+		write_bit(ctx, (*addr & ((uint64_t)1 << (rom_bit_index - 1 ))));
+		rom_bit_index++;
+	} while (rom_bit_index <= 64);
+
+	*last_discrepancy = discrepancy;
+	if (*last_discrepancy == 0)
+		*done = true;
+	result = true;
+
+	return result;
+}
+
+
+static int match_rom(pico_1wire_t *ctx, uint64_t addr)
+{
+	if (!pico_1wire_reset_bus(ctx))
+		return 1;
+
+	if (addr ==  0) {
+		/* Send Skip ROM command */
+		write_byte(ctx, CMD_SKIP);
+	} else {
+		/* Send Match ROM command */
+		write_byte(ctx, CMD_MATCH);
+		for (int i = 0; i < 8; i++) {
+			write_byte(ctx, ((uint8_t *)&addr)[7 - i]);
+		}
+	}
+
+	return 0;
+}
+
+
+
 /*****************************/
 /* Exposed Library Functions */
 
@@ -228,6 +313,9 @@ bool pico_1wire_reset_bus(pico_1wire_t *ctx)
 
 	if (!ctx)
 		return device_found;
+
+	/* Make sure power MOSFET is off (if one is present) */
+	power_mosfet_off(ctx);
 
 	/* Transmit Reset Pulse (480us minimum) */
 	gpio_set_dir(ctx->data_pin, GPIO_OUT);
@@ -285,69 +373,6 @@ int pico_1wire_read_rom(pico_1wire_t *ctx, uint64_t *addr)
 }
 
 
-static inline void uint64_set_bit(uint64_t *var, uint bit, bool value)
-{
-	*var = (*var & ~((uint64_t)1 << bit)) | ((uint64_t)value << bit);
-}
-
-
-static bool find_device(pico_1wire_t *ctx, uint64_t *addr, bool *done, uint *last_discrepancy)
-{
-	bool result = false;
-	uint rom_bit_index = 1;
-	uint discrepancy = 0;
-	bool bit_a, bit_b;
-
-
-	if (*done) {
-		*done = false;
-		return result;
-	}
-
-	if (!pico_1wire_reset_bus(ctx)) {
-		*last_discrepancy = 0;
-		return result;
-	}
-
-	/* Send Search ROM command */
-	write_byte(ctx, CMD_SEARCH);
-
-	do {
-		/* Read Responses */
-		bit_a = read_bit(ctx);
-		bit_b = read_bit(ctx);
-
-		if (bit_a & bit_b) { /* Both bits 1 */
-			*last_discrepancy = 0;
-			return result;
-		}
-		if (bit_a == bit_b) { /* Both bits 0 */
-			if (rom_bit_index == *last_discrepancy) {
-				uint64_set_bit(addr, rom_bit_index - 1, true);
-			}
-			else if (rom_bit_index > *last_discrepancy) {
-				uint64_set_bit(addr, rom_bit_index - 1, false);
-				discrepancy = rom_bit_index;
-			}
-			else if (!( *addr & ((uint64_t)1 << (rom_bit_index - 1)))) {
-				discrepancy = rom_bit_index;
-			}
-		} else {
-			uint64_set_bit(addr, rom_bit_index - 1, bit_a);
-		}
-		write_bit(ctx, (*addr & ((uint64_t)1 << (rom_bit_index - 1 ))));
-		rom_bit_index++;
-	} while (rom_bit_index <= 64);
-
-	*last_discrepancy = discrepancy;
-	if (*last_discrepancy == 0)
-		*done = true;
-	result = true;
-
-	return result;
-}
-
-
 int pico_1wire_search_rom(pico_1wire_t *ctx, uint64_t  *addr_list, uint addr_list_size, uint *devices_found)
 {
 	bool done = false;
@@ -365,7 +390,7 @@ int pico_1wire_search_rom(pico_1wire_t *ctx, uint64_t  *addr_list, uint addr_lis
 	if (!pico_1wire_reset_bus(ctx))
 		return 1;
 
-	while (find_device(ctx, &rom_addr, &done, &last_discrepancy)) {
+	while (find_next_device(ctx, &rom_addr, &done, &last_discrepancy)) {
 		/* Check CRC and reverse byte order at the same time... */
 		uint64_t new_addr = 0;
 		uint8_t *p = &((uint8_t*)&new_addr)[7];
@@ -414,26 +439,6 @@ int pico_1wire_read_power_supply(pico_1wire_t *ctx, bool *present)
 }
 
 
-static int match_rom(pico_1wire_t *ctx, uint64_t addr)
-{
-	if (!pico_1wire_reset_bus(ctx))
-		return 1;
-
-	if (addr ==  0) {
-		/* Send Skip ROM command */
-		write_byte(ctx, CMD_SKIP);
-	} else {
-		/* Send Match ROM command */
-		write_byte(ctx, CMD_MATCH);
-		for (int i = 0; i < 8; i++) {
-			write_byte(ctx, ((uint8_t *)&addr)[7 - i]);
-		}
-	}
-
-	return 0;
-}
-
-
 int pico_1wire_read_scratch_pad(pico_1wire_t *ctx, uint64_t addr, uint8_t *buf)
 {
 	const uint len = 9;
@@ -462,6 +467,7 @@ int pico_1wire_read_scratch_pad(pico_1wire_t *ctx, uint64_t addr, uint8_t *buf)
 	return 0;
 }
 
+
 int pico_1wire_write_scratch_pad(pico_1wire_t *ctx, uint64_t addr, uint8_t *buf)
 {
 	if (!ctx || !buf)
@@ -476,10 +482,22 @@ int pico_1wire_write_scratch_pad(pico_1wire_t *ctx, uint64_t addr, uint8_t *buf)
 	/* Write 3 bytes on the devices scratch pad */
 	write_byte(ctx, buf[2]); /* T(H) register */
 	write_byte(ctx, buf[3]); /* T(L) register */
-	write_byte(ctx, buf[4]); /* Configuration register */
+
+	switch(ADDR_FAMILY_CODE(addr)) {
+
+	case FAMILY_CODE_DS18S20:
+	case FAMILY_CODE_DS18B20:
+	case FAMILY_CODE_DS1822:
+		write_byte(ctx, buf[4]); /* Configuration register */
+		break;
+
+	default:
+		break;
+	}
 
 	return 0;
 }
+
 
 int pico_1wire_convert_temperature(pico_1wire_t *ctx, uint64_t addr, bool wait)
 {
@@ -495,32 +513,25 @@ int pico_1wire_convert_temperature(pico_1wire_t *ctx, uint64_t addr, bool wait)
 	/* Send Convert Temperature command. */
 	write_byte(ctx, CMD_CONVERT);
 
-	if (!ctx->psu_present) {
-		if (ctx->power_available) {
-			power_mosfet_on(ctx);
-			sleep_ms(delay);
+	if (!ctx->psu_present)
+		power_mosfet_on(ctx);
+
+	if (wait) {
+		sleep_ms(delay);
+		if (!ctx->psu_present)
 			power_mosfet_off(ctx);
-		} else {
-			gpio_set_dir(ctx->data_pin, GPIO_OUT);
-			gpio_put(ctx->data_pin, true);
-			sleep_ms(delay);
-			gpio_set_dir(ctx->data_pin, GPIO_IN);
-		}
-	}
-	else {
-		if (wait) {
-			sleep_ms(delay);
-		}
 	}
 
 	return 0;
 }
 
+
 int pico_1wire_get_temperature(pico_1wire_t *ctx, uint64_t addr, float *temperature)
 {
-	uint8_t scratch[16];
+	uint8_t scratch[9];
 	int val;
 	float temp;
+	int result = 0;
 
 	if (!ctx || !temperature)
 		return -1;
@@ -528,24 +539,94 @@ int pico_1wire_get_temperature(pico_1wire_t *ctx, uint64_t addr, float *temperat
 	if (pico_1wire_read_scratch_pad(ctx, addr, scratch))
 		return 1;
 
+	/* Convert reading to float */
 	val = (scratch[1] << 8) | scratch[0];
+	if (val & 0x8000)
+		val = - ((val ^ 0xffff) + 1);
 	temp  = (float)val;
 
 
-	switch( (addr >> 56) ) {
+	switch(ADDR_FAMILY_CODE(addr)) {
+
 	case FAMILY_CODE_DS18B20:
 	case FAMILY_CODE_DS1822:
 	case FAMILY_CODE_MAX31826:
 		temp /= 16.0;
 		break;
+
 	case FAMILY_CODE_DS18S20:
+		float remaining_count = scratch[6];
+		float count_per_degree = scratch[7];
+		temp = floorf(temp / 2.0) - 0.25 + (count_per_degree - remaining_count) / count_per_degree;
 		break;
+
 	default:
-		temp = 0.0;
+		temp /= 16.0;
+		result = 2; /* Return error code on unsupported sensors. */
 		break;
 	}
 
 	*temperature = temp;
+
+	return result;
+}
+
+
+int pico_1wire_get_resolution(pico_1wire_t *ctx, uint64_t addr, uint *resolution)
+{
+	uint8_t scratch[9];
+
+	if (!ctx || !addr || !resolution)
+		return -1;
+
+	if (pico_1wire_read_scratch_pad(ctx, addr, scratch))
+		return 1;
+
+	switch(ADDR_FAMILY_CODE(addr)) {
+
+	case FAMILY_CODE_DS18B20:
+	case FAMILY_CODE_DS18S20:
+	case FAMILY_CODE_DS1822:
+		uint8_t res = ((scratch[4] & 0x7f) >> 5) + 9;
+		//printf("config: %02x, res=%u\n", scratch[4], res);
+		*resolution = res;
+		break;
+
+	default:
+		*resolution = 0;
+		return 2;
+	}
+
+	return 0;
+}
+
+
+int pico_1wire_set_resolution(pico_1wire_t *ctx, uint64_t addr, uint resolution)
+{
+	uint8_t scratch[9];
+	uint8_t new_cfg;
+
+	if (!ctx || !addr || resolution < 9 || resolution > 12)
+		return -1;
+
+	if (pico_1wire_read_scratch_pad(ctx, addr, scratch))
+		return 1;
+
+	switch(ADDR_FAMILY_CODE(addr)) {
+
+	case FAMILY_CODE_DS18B20:
+	case FAMILY_CODE_DS18S20:
+	case FAMILY_CODE_DS1822:
+		new_cfg = (scratch[4] & 0x9f) | ((resolution - 9) << 5);
+		//printf("config: %02x, new config: %02x\n", scratch[4], new_cfg);
+		scratch[4] = new_cfg;
+		if (pico_1wire_write_scratch_pad(ctx, addr, scratch))
+			return 2;
+		break;
+
+	default:
+		return 3;
+	}
 
 	return 0;
 }

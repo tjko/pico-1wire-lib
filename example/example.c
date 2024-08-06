@@ -92,28 +92,43 @@ int main() {
 		}
 
 		if (device_count > 0) {
-			log_msg("Convert temperature: %016llX", addr_list[0]);
-			res = pico_1wire_convert_temperature(ctx, addr_list[0], true);
+			uint64_t conv = 0;
+			log_msg("Convert temperature: %016llX", conv);
+			res = pico_1wire_convert_temperature(ctx, conv, true);
 			log_msg("result: %d", res);
 
-			log_msg("read scratch pad");
-			res = pico_1wire_read_scratch_pad(ctx, addr_list[0], scratch);
-			log_msg("result: %d", res);
-			if (res == 0)
-				log_msg("%02x %02x %02x %02x %02x %02x %02x %02x %02x",
-					scratch[0],
-					scratch[1],
-					scratch[2],
-					scratch[3],
-					scratch[4],
-					scratch[5],
-					scratch[6],
-					scratch[7],
-					scratch[8],
-					scratch[9]);
+			for (int i = 0; i < device_count; i++) {
+				uint64_t a = addr_list[i];
+#if 0
+				log_msg("read scratch pad: %016llX", a);
+				res = pico_1wire_read_scratch_pad(ctx, a, scratch);
+				log_msg("result: %d", res);
+				if (res == 0)
+					log_msg("%02x %02x %02x %02x %02x %02x %02x %02x %02x",
+						scratch[0],
+						scratch[1],
+						scratch[2],
+						scratch[3],
+						scratch[4],
+						scratch[5],
+						scratch[6],
+						scratch[7],
+						scratch[8],
+						scratch[9]);
+#endif
+				res = pico_1wire_get_temperature(ctx, a, &temp);
+				if (res)
+					log_msg("Device %016llX: failed to get temperature: %d", a, res);
+				else
+					log_msg("Device %016llX: temp: %3.4f", a, temp);
 
-			res = pico_1wire_get_temperature(ctx, addr_list[0], &temp);
-			log_msg("res=%d, temp: %0.4f", res, temp);
+				uint resolution;
+				res = pico_1wire_get_resolution(ctx, a, &resolution);
+				log_msg("res=%d: resolution=%u\n", res, resolution);
+
+				res = pico_1wire_set_resolution(ctx, a, 11);
+				log_msg("set resolutiuon: %d", res);
+			}
 		}
 
 		log_msg("sleep...");
