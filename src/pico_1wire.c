@@ -48,8 +48,10 @@
 #define FAMILY_CODE_DS18S20      0x10  /* Temperature (9bit) */
 #define FAMILY_CODE_DS1822       0x22  /* Temperature (9-12bit) */
 #define FAMILY_CODE_DS18B20      0x28  /* Temperature (9-12bit) */
+#define FAMILY_CODE_MAX31820     0x28  /* Temperature (9-12bit) */
+#define FAMILY_CODE_DS1825       0x3B  /* Temperature (9-12bit) */
 #define FAMILY_CODE_MAX31826     0x3B  /* Temperature (12bit) + 1k EEPROM */
-#define FAMILY_CODE_DS28EA00     0x42  /* Temperature + IO */
+#define FAMILY_CODE_DS28EA00     0x42  /* Temperature (9-12bit) + IO */
 
 /* Timings */
 #define RESET_PULSE_TX_MIN_LEN   480    /* 480us min */
@@ -58,6 +60,8 @@
 #define WRITE_SLOT_RECOVERY_TIME 5      /* 1us min */
 #define READ_SLOT_LEN            60     /* 60us min */
 #define READ_SLOT_RECOVERY_TIME  5      /* 1us min */
+
+#define MAX_TEMP_CONVERSION_TIME 750    /* 750ms */
 
 
 #define ADDR_FAMILY_CODE(x) ((uint64_t)(x) >> 56)
@@ -476,32 +480,59 @@ int pico_1wire_write_scratch_pad(pico_1wire_t *ctx, uint64_t addr, uint8_t *buf)
 	if (match_rom(ctx, addr))
 		return 1;
 
+
 	/* Send Read Scratch Pad command. */
 	write_byte(ctx, CMD_WRITE_SCRATCHPAD);
 
-	/* Write 3 bytes on the devices scratch pad */
 	write_byte(ctx, buf[2]); /* T(H) register */
 	write_byte(ctx, buf[3]); /* T(L) register */
 
-	switch(ADDR_FAMILY_CODE(addr)) {
-
-	case FAMILY_CODE_DS18S20:
-	case FAMILY_CODE_DS18B20:
-	case FAMILY_CODE_DS1822:
+	if (ADDR_FAMILY_CODE(addr) != FAMILY_CODE_DS18S20)
 		write_byte(ctx, buf[4]); /* Configuration register */
-		break;
 
-	default:
-		break;
+	return 0;
+}
+
+
+int pico_1wire_convert_duration(pico_1wire_t *ctx, uint64_t addr, uint *duration)
+{
+	uint delay = MAX_TEMP_CONVERSION_TIME;
+	uint8_t scratch[9];
+
+	if (!ctx || !duration)
+		return -1;
+
+	if (addr) {
+		switch(ADDR_FAMILY_CODE(addr)) {
+
+		case FAMILY_CODE_DS18B20:
+		case FAMILY_CODE_DS1822:
+		case FAMILY_CODE_DS1825:
+		case FAMILY_CODE_DS28EA00:
+			if (pico_1wire_read_scratch_pad(ctx, addr, scratch))
+				return 1;
+			uint8_t resolution = ((scratch[4] & 0x7f) >> 5) + 9;
+			if (resolution == 9)
+				delay = 95;
+			else if (resolution == 10)
+				delay = 190;
+			else if (resolution == 11)
+				delay = 375;
+			break;
+
+		default:
+			break;
+		}
 	}
 
+	*duration = delay;
 	return 0;
 }
 
 
 int pico_1wire_convert_temperature(pico_1wire_t *ctx, uint64_t addr, bool wait)
 {
-	uint delay = 750;
+	uint delay = MAX_TEMP_CONVERSION_TIME;
 
 	if (!ctx)
 		return -1;
@@ -529,7 +560,7 @@ int pico_1wire_convert_temperature(pico_1wire_t *ctx, uint64_t addr, bool wait)
 int pico_1wire_get_temperature(pico_1wire_t *ctx, uint64_t addr, float *temperature)
 {
 	uint8_t scratch[9];
-	int val;
+	int temp_read;
 	float temp;
 	int result = 0;
 
@@ -539,29 +570,29 @@ int pico_1wire_get_temperature(pico_1wire_t *ctx, uint64_t addr, float *temperat
 	if (pico_1wire_read_scratch_pad(ctx, addr, scratch))
 		return 1;
 
-	/* Convert reading to float */
-	val = (scratch[1] << 8) | scratch[0];
-	if (val & 0x8000)
-		val = - ((val ^ 0xffff) + 1);
-	temp  = (float)val;
+	/* Convert reading to integer */
+	temp_read = (scratch[1] << 8) | scratch[0];
+	if (temp_read & 0x8000)
+		temp_read = - ((temp_read ^ 0xffff) + 1);
 
 
 	switch(ADDR_FAMILY_CODE(addr)) {
 
-	case FAMILY_CODE_DS18B20:
 	case FAMILY_CODE_DS1822:
-	case FAMILY_CODE_MAX31826:
-		temp /= 16.0;
+	case FAMILY_CODE_DS18B20:
+	case FAMILY_CODE_DS1825:
+	case FAMILY_CODE_DS28EA00:
+		temp =  (float)temp_read / 16.0;
 		break;
 
 	case FAMILY_CODE_DS18S20:
-		float remaining_count = scratch[6];
-		float count_per_degree = scratch[7];
-		temp = floorf(temp / 2.0) - 0.25 + (count_per_degree - remaining_count) / count_per_degree;
+		int count_remain = scratch[6];
+		int count_per_degree = scratch[7];
+		temp = (temp_read / 2) - 0.25 + (count_per_degree - count_remain) / (float)count_per_degree;
 		break;
 
 	default:
-		temp /= 16.0;
+		temp = (float)temp_read / 16.0; /* Best quess... */
 		result = 2; /* Return error code on unsupported sensors. */
 		break;
 	}
@@ -585,11 +616,16 @@ int pico_1wire_get_resolution(pico_1wire_t *ctx, uint64_t addr, uint *resolution
 	switch(ADDR_FAMILY_CODE(addr)) {
 
 	case FAMILY_CODE_DS18B20:
-	case FAMILY_CODE_DS18S20:
 	case FAMILY_CODE_DS1822:
+	case FAMILY_CODE_DS1825:
+	case FAMILY_CODE_DS28EA00:
 		uint8_t res = ((scratch[4] & 0x7f) >> 5) + 9;
 		//printf("config: %02x, res=%u\n", scratch[4], res);
 		*resolution = res;
+		break;
+
+	case FAMILY_CODE_DS18S20:
+		*resolution = 9;
 		break;
 
 	default:
@@ -615,8 +651,9 @@ int pico_1wire_set_resolution(pico_1wire_t *ctx, uint64_t addr, uint resolution)
 	switch(ADDR_FAMILY_CODE(addr)) {
 
 	case FAMILY_CODE_DS18B20:
-	case FAMILY_CODE_DS18S20:
 	case FAMILY_CODE_DS1822:
+	case FAMILY_CODE_DS1825:
+	case FAMILY_CODE_DS28EA00:
 		new_cfg = (scratch[4] & 0x9f) | ((resolution - 9) << 5);
 		//printf("config: %02x, new config: %02x\n", scratch[4], new_cfg);
 		scratch[4] = new_cfg;

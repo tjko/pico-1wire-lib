@@ -46,6 +46,7 @@ int pico_1wire_read_power_supply(pico_1wire_t *ctx,  bool *present);
 int pico_1wire_read_scratch_pad(pico_1wire_t *ctx,  uint64_t addr, uint8_t *buf);
 int pico_1wire_write_scratch_pad(pico_1wire_t *ctx, uint64_t addr, uint8_t *buf);
 
+int pico_1wire_convert_duration(pico_1wire_t *ctx, uint64_t addr, uint *duration);
 int pico_1wire_convert_temperature(pico_1wire_t *ctx, uint64_t addr, bool wait);
 int pico_1wire_get_temperature(pico_1wire_t *ctx, uint64_t addr, float *temperature);
 int pico_1wire_get_resolution(pico_1wire_t *ctx, uint64_t addr, uint *resolution);

@@ -126,7 +126,7 @@ int main() {
 				res = pico_1wire_get_resolution(ctx, a, &resolution);
 				log_msg("res=%d: resolution=%u\n", res, resolution);
 
-				res = pico_1wire_set_resolution(ctx, a, 11);
+				res = pico_1wire_set_resolution(ctx, a, 12);
 				log_msg("set resolutiuon: %d", res);
 			}
 		}
