@@ -2,7 +2,6 @@
 #include <stdarg.h>
 #include <string.h>
 #include "pico/stdlib.h"
-#include "hardware/gpio.h"
 #include "pico_1wire.h"
 
 
