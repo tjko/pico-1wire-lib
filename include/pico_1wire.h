@@ -28,6 +28,12 @@
 
 #include "pico/stdio.h"
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
+
 
 /**
  * Context for 1-Wire bus instance.
@@ -294,5 +300,9 @@ int pico_1wire_get_resolution(pico_1wire_t *ctx, uint64_t addr, uint *resolution
  */
 int pico_1wire_set_resolution(pico_1wire_t *ctx, uint64_t addr, uint resolution);
 
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* PICO_1WIRE_H */
