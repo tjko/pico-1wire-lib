@@ -41,31 +41,31 @@ int main() {
 	uint64_t addr_list[MAX_DEVICES];
 	uint device_count;
 	int res;
-	uint8_t scratch[32];
-	float temp;
 
 	stdio_init_all();
 
 	sleep_ms(250);
 	printf("\n\n\nBOOT\n");
 
-	pico_1wire_t *ctx = pico_1wire_init(DATA_PIN, POWER_PIN, true);
 
+	pico_1wire_t *ctx = pico_1wire_init(DATA_PIN, POWER_PIN, true);
 	if (!ctx) {
 		log_msg("pico_1wire_init() failed");
 		panic("halt");
 	}
 
-	log_msg("Checking for devices in the bus...");
+
+	log_msg("Check for device(s) in the bus...");
 	while (!pico_1wire_reset_bus(ctx)) {
 		log_msg("No device(s) found!");
 		sleep_ms(1000);
 	}
 	log_msg("1 or more devices detected.");
 
+
 	log_msg("Checking for devices using phantom power...");
-	while (pico_1wire_read_power_supply(ctx, &psu)) {
-		log_msg("Read Power Supply Command failed.");
+	while ((res = pico_1wire_read_power_supply(ctx, 0, &psu))) {
+		log_msg("Read Power Supply Command failed: %d", res);
 		sleep_ms(1000);
 	}
 	if (psu)
@@ -73,67 +73,71 @@ int main() {
 	else
 		log_msg("1 or more devices using phantom power.");
 
+
+	log_msg("Send Read ROM Command...");
+	res = pico_1wire_read_rom(ctx, &addr);
+	if (!res) {
+		log_msg("1 Device found: %016llx", addr);
+	} else {
+		log_msg("Read ROM Failed (multiple devices in the bus?)");
+	}
+
+
 	log_msg("start loop");
 
 	while (1) {
-		log_msg("Send Read ROM Command...");
-		res = pico_1wire_read_rom(ctx, &addr);
-		if (!res) {
-			log_msg("1 Device found: %016llX", addr);
-		} else {
-			log_msg("Read ROM Failed (multiple devices in the bus?)");
-		}
-
 		log_msg("Find devices in the bus...");
-		log_msg("search result: %d", pico_1wire_search_rom(ctx, addr_list, MAX_DEVICES, &device_count));
-		log_msg("device count: %u", device_count);
+		res = pico_1wire_search_rom(ctx, addr_list, MAX_DEVICES, &device_count);
+		if (res) {
+			log_msg("pico_1wire_search_rom() failed: %d (no devices in the bus)", res);
+			sleep_ms(1000);
+			continue;
+		}
+		log_msg("%u device(s) found.", device_count);
 		for (int i = 0; i < device_count; i++) {
-			log_msg("Device %02d: %016llX\n", i + 1, addr_list[i]);
+			log_msg("Device %02d: %016llx\n", i + 1, addr_list[i]);
 		}
 
-		if (device_count > 0) {
-			uint64_t conv = 0;
-			log_msg("Convert temperature: %016llX", conv);
-			res = pico_1wire_convert_temperature(ctx, conv, true);
-			log_msg("result: %d", res);
+		if (device_count < 1) {
+			sleep_ms(1000);
+			continue;
+		}
 
-			for (int i = 0; i < device_count; i++) {
-				uint64_t a = addr_list[i];
-#if 0
-				log_msg("read scratch pad: %016llX", a);
-				res = pico_1wire_read_scratch_pad(ctx, a, scratch);
-				log_msg("result: %d", res);
-				if (res == 0)
-					log_msg("%02x %02x %02x %02x %02x %02x %02x %02x %02x",
-						scratch[0],
-						scratch[1],
-						scratch[2],
-						scratch[3],
-						scratch[4],
-						scratch[5],
-						scratch[6],
-						scratch[7],
-						scratch[8],
-						scratch[9]);
-#endif
-				res = pico_1wire_get_temperature(ctx, a, &temp);
-				if (res)
-					log_msg("Device %016llX: failed to get temperature: %d", a, res);
-				else
-					log_msg("Device %016llX: temp: %3.4f", a, temp);
+		uint conv_time;
+		if (pico_1wire_convert_duration(ctx, 0, &conv_time)) {
+			log_msg("pico_1wire_convert_duration() failed: %d", res);
+			sleep_ms(1000);
+			continue;
+		}
 
-				uint resolution;
-				res = pico_1wire_get_resolution(ctx, a, &resolution);
-				log_msg("res=%d: resolution=%u\n", res, resolution);
+		log_msg("Convert temperature: all devices");
+		res = pico_1wire_convert_temperature(ctx, 0, false);
+		if (res) {
+			log_msg("pico_1wire_conver_temperature() failed: %d", res);
+			sleep_ms(1000);
+			continue;
+		}
 
-				res = pico_1wire_set_resolution(ctx, a, 12);
-				log_msg("set resolutiuon: %d", res);
-			}
+		log_msg("Wait for temperature measurement to complete (%ums)...", conv_time);
+		sleep_ms(conv_time);
+		log_msg("Wait done.");
+
+		for (int i = 0; i < device_count; i++) {
+			float temp;
+			addr = addr_list[i];
+			res = pico_1wire_get_temperature(ctx, addr, &temp);
+			if (res)
+				log_msg("Device %016llX: failed to get temperature: %d",
+					addr, res);
+			else
+				log_msg("Device %016llX: temp: %8.4fC", addr, temp);
 		}
 
 		log_msg("sleep...");
 		sleep_ms(10000);
 	}
+
+
 	return 0;
 }
 
