@@ -1,23 +1,27 @@
-/* pico_1wire.h
-   Copyright (C) 2024 Timo Kokkonen <tjko@iki.fi>
-
-   SPDX-License-Identifier: GPL-3.0-or-later
-
-   This file is part of pico-1wire Library.
-
-   pico-1wire Library is free software: you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   pico-1wire Library is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with pico-1wire Library. If not, see <https://www.gnu.org/licenses/>.
-*/
+/**
+ * @file pico_1wire.h
+ *
+ * Lightweight 1-Wire Protocol C Library for Raspberry Pi Pico
+ *
+ * Copyright (C) 2024 Timo Kokkonen <tjko@iki.fi>
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * This file is part of pico-1wire Library.
+ *
+ * pico-1wire Library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * pico-1wire Library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with pico-1wire Library. If not, see <https://www.gnu.org/licenses/>.
+ */
 
 #ifndef PICO_1WIRE_H
 #define PICO_1WIRE_H 1
@@ -25,6 +29,12 @@
 #include "pico/stdio.h"
 
 
+/**
+ * Context for 1-Wire bus instance.
+ *
+ * This structure stores state information about the 1-Wire bus instance.
+ * Created using pico_1wire_init(), and destroyed using pico_1wire_destroy().
+ */
 typedef struct pico_1wire_t {
 	uint data_pin;        /**< GPIO pin for 1-Wire data communications */
 	uint power_pin;       /**< GPIO pin that controls MOSFET (strong pull-up) */
@@ -132,6 +142,8 @@ int pico_1wire_search_rom(pico_1wire_t *ctx, uint64_t  *addr_list, uint addr_lis
  * in the bus that do not have active power supply (drawing "phantom" power from the bus).
  *
  * @param ctx Pointer to bus context.
+ * @param addr ROM Address of the device to check. Use 0 as address to check if all
+ *             devices have power (or if there is one or more requiring phantom power).
  * @param present Pointer to variable, that reports True if all devices in the bus
  *                have power supply. If set to NULL, power supply status is not returned.
  *
@@ -142,7 +154,7 @@ int pico_1wire_search_rom(pico_1wire_t *ctx, uint64_t  *addr_list, uint addr_lis
  *         - 0, success
  *         - 1, bus reset failed (no devices found)
  */
-int pico_1wire_read_power_supply(pico_1wire_t *ctx,  bool *present);
+int pico_1wire_read_power_supply(pico_1wire_t *ctx, uint64_t addr,  bool *present);
 
 
 /**
@@ -234,7 +246,7 @@ int pico_1wire_convert_temperature(pico_1wire_t *ctx, uint64_t addr, bool wait);
  * @param ctx Pointer to bus context.
  * @param addr ROM Address of the device to read.
  * @param temperature Pointer to variable to store the temperatue (in Celcius).
-  *
+ *
  * @return Status code,
  *         - -1, invalid parameters
  *         - 0, success
@@ -253,7 +265,7 @@ int pico_1wire_get_temperature(pico_1wire_t *ctx, uint64_t addr, float *temperat
  * @param ctx Pointer to bus context.
  * @param addr ROM Address of the device to read.
  * @param resolution Pointer to variable to store current measurement resolution (9..12)
-  *
+ *
  * @return Status code,
  *         - -1, invalid parameters
  *         - 0, success
@@ -268,11 +280,11 @@ int pico_1wire_get_resolution(pico_1wire_t *ctx, uint64_t addr, uint *resolution
  *
  * This allows configuring temperature measurement resolution (9-12bit) on sernsors
  * that support variable reolutions.
-  *
+ *
  * @param ctx Pointer to bus context.
  * @param addr ROM Address of the device to read.
  * @param resolution Measurement resolution (valid range from 9 to 12)
-  *
+ *
  * @return Status code,
  *         - -1, invalid parameters
  *         - 0, success

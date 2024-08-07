@@ -1,4 +1,5 @@
 /* pico_1wire.c
+
    Copyright (C) 2024 Timo Kokkonen <tjko@iki.fi>
 
    SPDX-License-Identifier: GPL-3.0-or-later
@@ -265,6 +266,7 @@ static int match_rom(pico_1wire_t *ctx, uint64_t addr)
 /*****************************/
 /* Exposed Library Functions */
 
+
 pico_1wire_t* pico_1wire_init(int data_pin, int power_pin, bool power_polarity)
 {
 	pico_1wire_t *ctx;
@@ -289,7 +291,9 @@ pico_1wire_t* pico_1wire_init(int data_pin, int power_pin, bool power_polarity)
 	}
 
 	ctx->psu_present = true;
-	pico_1wire_read_power_supply(ctx, NULL);
+
+	/* Check if any device in the bus uses phantom power. */
+	pico_1wire_read_power_supply(ctx, 0, NULL);
 
 	return ctx;
 }
@@ -419,17 +423,13 @@ int pico_1wire_search_rom(pico_1wire_t *ctx, uint64_t  *addr_list, uint addr_lis
 }
 
 
-int pico_1wire_read_power_supply(pico_1wire_t *ctx, bool *present)
+int pico_1wire_read_power_supply(pico_1wire_t *ctx, uint64_t addr, bool *present)
 {
 	if (!ctx)
 		return -1;
 
-	/* Reset bus and check if any devices present. */
-	if (!pico_1wire_reset_bus(ctx))
+	if (match_rom(ctx, addr))
 		return 1;
-
-	/* Send Skip ROM command */
-	write_byte(ctx, CMD_SKIP);
 
 	/* Send Read Power Supply command */
 	write_byte(ctx, CMD_READ_POWER_SUPPLY);
