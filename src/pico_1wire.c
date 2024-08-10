@@ -412,6 +412,8 @@ int pico_1wire_search_rom(pico_1wire_t *ctx, uint64_t  *addr_list, uint addr_lis
 		}
 		if (crc == byte) {
 			//printf("Found device: %016llX\n", new_addr);
+			if (*devices_found >= addr_list_size)
+				return 2;
 			addr_list[*devices_found] = new_addr;
 			*devices_found = *devices_found + 1;
 		} else {

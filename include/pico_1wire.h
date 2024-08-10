@@ -137,6 +137,7 @@ int pico_1wire_read_rom(pico_1wire_t *ctx, uint64_t *addr);
  *         - -1, invalid parameters
  *         - 0, success
  *         - 1, bus reset failed (no devices found)
+ *         - 2, found more devices than addr_list_size
  */
 int pico_1wire_search_rom(pico_1wire_t *ctx, uint64_t  *addr_list, uint addr_list_size, uint *devices_found);
 
