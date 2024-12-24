@@ -562,7 +562,7 @@ int pico_1wire_convert_temperature(pico_1wire_t *ctx, uint64_t addr, bool wait)
 int pico_1wire_get_temperature(pico_1wire_t *ctx, uint64_t addr, float *temperature)
 {
 	uint8_t scratch[9];
-	int temp_read;
+	int temp_read, count_remain, count_per_degree;
 	float temp;
 	int result = 0;
 
@@ -588,8 +588,8 @@ int pico_1wire_get_temperature(pico_1wire_t *ctx, uint64_t addr, float *temperat
 		break;
 
 	case FAMILY_CODE_DS18S20:
-		int count_remain = scratch[6];
-		int count_per_degree = scratch[7];
+		count_remain = scratch[6];
+		count_per_degree = scratch[7];
 		temp = (temp_read / 2) - 0.25 + (count_per_degree - count_remain) / (float)count_per_degree;
 		break;
 
@@ -607,7 +607,8 @@ int pico_1wire_get_temperature(pico_1wire_t *ctx, uint64_t addr, float *temperat
 
 int pico_1wire_get_resolution(pico_1wire_t *ctx, uint64_t addr, uint *resolution)
 {
-	uint8_t scratch[9];
+	uint8_t res, scratch[9];
+
 
 	if (!ctx || !addr || !resolution)
 		return -1;
@@ -621,7 +622,7 @@ int pico_1wire_get_resolution(pico_1wire_t *ctx, uint64_t addr, uint *resolution
 	case FAMILY_CODE_DS1822:
 	case FAMILY_CODE_DS1825:
 	case FAMILY_CODE_DS28EA00:
-		uint8_t res = ((scratch[4] & 0x7f) >> 5) + 9;
+		res = ((scratch[4] & 0x7f) >> 5) + 9;
 		//printf("config: %02x, res=%u\n", scratch[4], res);
 		*resolution = res;
 		break;
