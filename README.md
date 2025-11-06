@@ -4,6 +4,8 @@ Lightweight 1-Wire Protocol Library for Raspberry Pi Pico SDK
 This library implements basic 1-Wire protocol functionality to enable
 use of some common 1-Wire sensors more easily from programs written using [Raspberry Pi Pico SDK](https://www.raspberrypi.com/documentation/pico-sdk/).
 
+(See [pico-sensor-lib](https://github.com/tjko/pico-sensor-lib) for similar libary for I2C based sensors)
+
 This library was created for [FanPico](https://github.com/tjko/fanpico/)
 and [BrickPico](https://github.com/tjko/brickpico/) projects.
 
