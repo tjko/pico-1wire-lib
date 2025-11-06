@@ -4,6 +4,9 @@ Lightweight 1-Wire Protocol Library for Raspberry Pi Pico SDK
 This library implements basic 1-Wire protocol functionality to enable
 use of some common 1-Wire sensors more easily from programs written using [Raspberry Pi Pico SDK](https://www.raspberrypi.com/documentation/pico-sdk/).
 
+This library was created for [FanPico](https://github.com/tjko/fanpico/)
+and [BrickPico](https://github.com/tjko/brickpico/) projects.
+
 This library borrows some ideas from following other 1-Wire libraries:
 - [pico-onewire library](https://github.com/adamboardman/pico-onewire) by Adam Boardman
 - [DS1830 mbed library](https://developer.mbed.org/components/DS1820/) by Erik Olieman
@@ -50,5 +53,5 @@ target_link_libraries(myprogram PRIVATE
 
 ## Examples
 
-See [pico-1wire-lib example](example/)
+See [pico-1wire-lib example](example/) or actual usage example in FanPico firmware [src/onewire.c](https://github.com/tjko/fanpico/blob/main/src/onewire.c)
 
